@@ -1,103 +1,306 @@
+"use client";
 import Image from "next/image";
+import { useCallback, useState } from "react";
+
+interface Subcategory {
+  id: string;
+  name: string;
+  code: number;
+}
+
+interface Category {
+  id: string;
+  name: string;
+  childrenCategories: Subcategory[];
+}
+
+interface TeacherCategoryInfo {
+  name: string;
+  pricePerHour: number;
+}
+
+interface Teacher {
+  id: string;
+  categories: TeacherCategoryInfo[];
+}
+
+interface SearchResponse {
+  teachers: Teacher[];
+  totalResults: number;
+}
+
+interface CalculationResult {
+  categoryName: string;
+  averagePrice: number;
+  status: "success" | "error";
+  message?: string;
+}
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [results, setResults] = useState<CalculationResult[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const API_BASE_URL = "https://test.teaching-me.org/users/v1/open";
+  const COMMON_HEADERS = {
+    "Accept-Language": "en",
+    "Content-Type": "application/json",
+  };
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+  const fetchCategories = async (): Promise<Category[]> => {
+    const response = await fetch(`${API_BASE_URL}/categories`, {
+      method: "GET",
+      headers: { "Accept-Language": "en" },
+    });
+    if (!response.ok) {
+      throw new Error("Failed to fetch categories");
+    }
+    return response.json();
+  };
+
+  const fetchAllTeachersForCategory = async (
+    categoryId: number
+  ): Promise<Teacher[]> => {
+    let allTeachers: Teacher[] = [];
+    let page = 0;
+    const pageSize = 10;
+
+    while (true) {
+      const response = await fetch(`${API_BASE_URL}/search`, {
+        method: "POST",
+        headers: COMMON_HEADERS,
+        body: JSON.stringify({
+          categories: [categoryId],
+          page,
+          pageSize,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error(
+          `Failed to fetch teachers for category ${categoryId} on page ${page}`
+        );
+        break;
+      }
+
+      const data: SearchResponse = await response.json();
+      const teachersOnPage = data.teachers || [];
+
+      if (teachersOnPage.length === 0) {
+        break;
+      }
+
+      allTeachers = [...allTeachers, ...teachersOnPage];
+      page++;
+    }
+    return allTeachers;
+  };
+
+  const postAveragePrice = async (
+    categoryName: string,
+    averagePrice: number
+  ): Promise<Response> => {
+    const response = await fetch(`${API_BASE_URL}/average-price`, {
+      method: "POST",
+      headers: COMMON_HEADERS,
+      body: JSON.stringify({
+        categoryName,
+        averagePrice,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to post average price for ${categoryName}`);
+    }
+    return response;
+  };
+
+  const handleCalculatePrices = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    setResults([]);
+
+    try {
+      const categories = await fetchCategories();
+      if (!categories || categories.length === 0) {
+        setError("No categories found.");
+        return;
+      }
+
+      const allSubcategories = categories.flatMap(
+        (category) => category.childrenCategories || []
+      );
+
+      if (allSubcategories.length === 0) {
+        setError("No subcategories found to process.");
+        return;
+      }
+
+      const calculationPromises = allSubcategories.map(async (subcategory) => {
+        try {
+          const teachers = await fetchAllTeachersForCategory(subcategory.code);
+          let totalPrice = 0;
+          let teachersWithPriceForCategory = 0;
+
+          teachers.forEach((teacher) => {
+            const relevantCategory = teacher.categories?.find(
+              (cat) => cat.name === subcategory.name
+            );
+
+            if (
+              relevantCategory &&
+              typeof relevantCategory.pricePerHour === "number"
+            ) {
+              totalPrice += relevantCategory.pricePerHour;
+              teachersWithPriceForCategory++;
+            }
+          });
+
+          const averagePrice =
+            teachersWithPriceForCategory > 0
+              ? totalPrice / teachersWithPriceForCategory
+              : 0;
+
+          const roundedAveragePrice = Math.round(averagePrice * 100) / 100;
+
+          await postAveragePrice(subcategory.name, roundedAveragePrice);
+
+          return {
+            categoryName: subcategory.name,
+            averagePrice: roundedAveragePrice,
+            status: "success" as const,
+            message: `Successfully posted average price of ${roundedAveragePrice} for ${teachersWithPriceForCategory} teachers.`,
+          };
+        } catch (catError) {
+          console.error(
+            `Error processing subcategory ${subcategory.name}:`,
+            catError
+          );
+          return {
+            categoryName: subcategory.name,
+            averagePrice: 0,
+            status: "error" as const,
+            message:
+              catError instanceof Error
+                ? catError.message
+                : "An unknown error occurred.",
+          };
+        }
+      });
+
+      const settledResults = await Promise.all(calculationPromises);
+      setResults(settledResults);
+    } catch (e) {
+      console.error(e);
+      setError(
+        e instanceof Error ? e.message : "An unexpected error occurred."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  return (
+    <>
+      <main className="  p-6  border border-slate-700">
+        <div className="flex justify-center mb-8">
+          <button
+            onClick={handleCalculatePrices}
+            disabled={isLoading}
+            className="px-8 py-4 bg-gray-500 text-white font-bold text-lg rounded-lg hover:bg-gray-400 disabled:bg-slate-600 disabled:cursor-not-allowed disabled:text-slate-400"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            {isLoading ? "Calculating..." : "Calculate Average Prices"}
+          </button>
         </div>
+
+        {isLoading && (
+          <div className="flex justify-center items-center flex-col text-center">
+            <p className="mt-4 ">Fetching categories and teachers.</p>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-900/50 border border-red-700 text-red-300 p-4 rounded-lg text-center">
+            <h3 className="font-bold mb-2">An Error Occurred</h3>
+            <p>{error}</p>
+          </div>
+        )}
+
+        {results.length > 0 && !isLoading && (
+          <div className="space-y-4">
+            <h2 className="text-2xl font-bold text-center  border-b border-slate-700 pb-2">
+              Calculation Results
+            </h2>
+            <ul className="divide-y divide-slate-700">
+              {results.map((result) => (
+                <li
+                  key={result.categoryName}
+                  className="p-4 flex justify-between items-center "
+                >
+                  <div>
+                    <p className="font-semibold text-lg ">
+                      {result.categoryName}
+                    </p>
+                    <p className="text-sm ">{result.message}</p>
+                  </div>
+                  <div className="text-right">
+                    {result.status === "success" ? (
+                      <span className="text-xl font-bold ">
+                        ${result.averagePrice.toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-xl font-bold text-red-500">
+                        Failed
+                      </span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      <div className="flex rounded-xl border-2 border-gray-500 items-start max-w-lg p-6 m-4">
+        <Image
+          className="rounded-full m-2"
+          src="/icon.png"
+          alt="Icon"
+          width={64}
+          height={64}
+        />
+
+        <div className="flex flex-col flex-1 ml-2">
+          <div className="flex justify-between items-start  max-w-fit">
+            <div>
+              <div className="text-xl font-semibold max-w-fit">
+                Request for the lesson
+              </div>
+              <p className="text-gray-500 max-w-sm text-balance">
+                Daniel Hamilton wants to start a lesson, please confirm or deny
+                the request
+              </p>
+              <p className="text-sm text-gray-400 max-w-fit pt-2">
+                18 Dec, 14:50pm, 2022
+              </p>
+            </div>
+
+            <button
+              className="w-8 h-8 flex items-center justify-center 
+                       rounded-full border-2 font-semibold border-gray-800 text-gray-800 
+                       hover:bg-gray-200 hover:text-black transition"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="flex justify-end gap-2 mt-4 mr-2">
+            <button className="w-36 h-10 border border-gray-500 rounded-xl hover:border-transparent hover:bg-gray-500 hover:text-white active:bg-gray-700">
+              View details
+            </button>
+            <button className="w-32 h-10 text-white border bg-black border-black rounded-xl hover:border-transparent hover:bg-gray-500 active:bg-gray-700">
+              Submit
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
