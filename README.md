@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Тестове Завдання: Калькулятор середньої ціни для викладачів
+Цей проєкт є односторінковим React-додатком, створеним для виконання тестового завдання. Додаток розраховує середню вартість послуг викладачів для кожної підкатегорії, отриманої з API, та відправляє розраховані дані назад на сервер.
 
-## Getting Started
+Як це працює?
+Ініціація: Користувач натискає кнопку "Calculate Average Prices", щоб запустити процес.
 
-First, run the development server:
+Отримання категорій: Додаток надсилає GET-запит на https://test.teaching-me.org/users/v1/open/categories, щоб отримати повний список категорій та їхніх підкатегорій.
+
+Отримання викладачів: Для кожної окремої підкатегорії додаток виконує POST-запити до https://test.teaching-me.org/users/v1/open/search. Оскільки API підтримує пагінацію, додаток автоматично перебирає всі сторінки, щоб зібрати повний список викладачів для даної підкатегорії.
+
+## Розрахунок середньої ціни:
+
+Ключова логіка полягає в тому, що ціна (pricePerHour) береться не із загального профілю викладача, а з об'єкта відповідної категорії всередині масиву teacher.categories.
+
+Додаток знаходить у кожного викладача потрібну підкатегорію за її назвою та використовує ціну, вказану саме для неї.
+
+На основі цих даних розраховується середня ціна для всіх викладачів у цій підкатегорії.
+
+Відправка результатів: Розрахована середня ціна для кожної підкатегорії відправляється на сервер за допомогою POST-запиту на https://test.teaching-me.org/users/v1/open/average-price.
+
+Відображення результатів: Користувач бачить на екрані список усіх підкатегорій та статус обробки для кожної з них: успішне завантаження з показом середньої ціни або повідомлення про помилку.
+
+##  Технології
+React: для побудови користувацького інтерфейсу.
+
+TypeScript: для типізації та підвищення надійності коду.
+
+Tailwind CSS: для швидкого та сучасного стильового оформлення.
+
+##  Запуск проєкту
+Клонуйте репозиторій:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/yur-ochka/test-task.git
+cd test-task
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Встановіть залежності:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Запустіть проєкт у режимі розробки:
 
-## Learn More
+```bash
+npm start
+```
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Після цього додаток буде доступний за адресою http://localhost:3000 у вашому браузері.
