@@ -136,6 +136,12 @@ export default function Home() {
 
       const calculationPromises = allSubcategories.map(async (subcategory) => {
         try {
+          // ✅ Регулярний вираз для перевірки назви категорії
+          const validNamePattern = /^[A-Za-z\s]+$/;
+          if (!validNamePattern.test(subcategory.name)) {
+            throw new Error(`Invalid category name: ${subcategory.name}`);
+          }
+
           const teachers = await fetchAllTeachersForCategory(subcategory.code);
           let totalPrice = 0;
           let teachersWithPriceForCategory = 0;
